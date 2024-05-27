@@ -1,0 +1,4 @@
+      view_promotions_button = QPushButton('Промоакции')
+        view_promotions_button.setIcon(QIcon('icons/promo.png'))
+        view_promotions_button.clicked.connect(self.show_view_promotions)
+        button_layout.addWidget(view_promotions_button)
