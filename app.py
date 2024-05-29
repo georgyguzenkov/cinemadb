@@ -13,6 +13,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.enums import TA_CENTER
 import io
+import decimal
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, \
     QMessageBox, QTableWidget, QTableWidgetItem, QComboBox, QInputDialog, QDialog, QSpacerItem, QSizePolicy, QRadioButton, QButtonGroup
 from PyQt5.QtGui import QPixmap, QIcon
@@ -167,6 +168,11 @@ class LoginWindow(QWidget):
         view_users_button.setIcon(QIcon('icons/users.png'))
         view_users_button.clicked.connect(self.show_view_users)
         button_layout.addWidget(view_users_button)
+
+        view_promotions_button = QPushButton('Промоакции')
+        view_promotions_button.setIcon(QIcon('icons/promo.png'))
+        view_promotions_button.clicked.connect(self.show_view_promotions)
+        button_layout.addWidget(view_promotions_button)
 
         main_layout.addLayout(button_layout)
         self.setLayout(main_layout)
@@ -818,6 +824,10 @@ class ViewUsersWindow(QWidget):
             self.table_widget.setItem(row, 1, QTableWidgetItem(user[1]))
 
 
+import decimal
+
+import decimal
+
 class ViewPromotionsWindow(QWidget):
     def __init__(self, db_connection):
         super().__init__()
@@ -827,33 +837,189 @@ class ViewPromotionsWindow(QWidget):
 
     def init_ui(self):
         self.setWindowTitle('Посмотреть промоакции')
-        self.setGeometry(100, 100, 600, 400)
+        self.setGeometry(100, 100, 800, 400)  # Увеличил ширину окна для дополнительного столбца
 
         layout = QVBoxLayout()
 
         self.table_label = QLabel('Таблица промо:')
         self.table_widget = QTableWidget(self)
 
+        # Добавление кнопок "Добавить", "Применить", "Отменить" и "Удалить"
+        add_promotion_button = QPushButton('Добавить Промоакцию')
+        add_promotion_button.setIcon(QIcon('icons/add.png'))
+        add_promotion_button.clicked.connect(self.show_add_promotion_window)
+
+        apply_discount_button = QPushButton('Применить скидку')
+        apply_discount_button.setIcon(QIcon('icons/apply.png'))
+        apply_discount_button.clicked.connect(self.apply_discount)
+
+        cancel_discount_button = QPushButton('Отменить скидку')
+        cancel_discount_button.setIcon(QIcon('icons/cancel.png'))
+        cancel_discount_button.clicked.connect(self.cancel_discount)
+
+        delete_promotion_button = QPushButton('Удалить Промоакцию')
+        delete_promotion_button.setIcon(QIcon('icons/delete.png'))
+        delete_promotion_button.clicked.connect(self.delete_promotion)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(add_promotion_button)
+        button_layout.addWidget(apply_discount_button)
+        button_layout.addWidget(cancel_discount_button)
+        button_layout.addWidget(delete_promotion_button)
+
         layout.addWidget(self.table_label)
         layout.addWidget(self.table_widget)
+        layout.addLayout(button_layout)
 
         self.setLayout(layout)
 
     def populate_table(self):
         cursor = self.db_connection.cursor()
 
-        # Используем параметризованный запрос для безопасности
-        cursor.execute('SELECT * FROM promotions')
+        # Обновленный запрос с join для получения названия фильма
+        cursor.execute('''
+            SELECT p.promotion_id, p.movie_id, m.title, p.discount_percentage, p.start_date, p.end_date, p.original_price
+            FROM promotions p
+            JOIN movies m ON p.movie_id = m.movie_id
+        ''')
         promotions = cursor.fetchall()
 
         self.table_widget.setRowCount(len(promotions))
-        self.table_widget.setColumnCount(5)
-        self.table_widget.setHorizontalHeaderLabels(['ID Промо', 'Имя', 'Процент скидки', 'Дата начала', 'Дата окончания'])
+        self.table_widget.setColumnCount(7)
+        self.table_widget.setHorizontalHeaderLabels(['ID Промо', 'ID Фильма', 'Название фильма', 'Процент скидки', 'Дата начала', 'Дата окончания', 'Изначальная цена'])
 
         for row, promotion in enumerate(promotions):
             for col, data in enumerate(promotion):
                 item = QTableWidgetItem(str(data))
                 self.table_widget.setItem(row, col, item)
+
+    def show_add_promotion_window(self):
+        self.add_promotion_window = AddPromotionWindow(self.db_connection, self)
+        self.add_promotion_window.show()
+
+    def apply_discount(self):
+        current_row = self.table_widget.currentRow()
+        if current_row > -1:
+            movie_id_item = self.table_widget.item(current_row, 1)
+            discount_item = self.table_widget.item(current_row, 3)
+            if movie_id_item and discount_item:
+                movie_id = int(movie_id_item.text())
+                discount_percentage = decimal.Decimal(discount_item.text())
+
+                cursor = self.db_connection.cursor()
+                cursor.execute('SELECT ticket_price FROM movies WHERE movie_id = %s', (movie_id,))
+                original_price = cursor.fetchone()[0]
+
+                new_price = original_price - (original_price * (discount_percentage / decimal.Decimal(100)))
+
+                cursor.execute('UPDATE movies SET ticket_price = %s WHERE movie_id = %s', (new_price, movie_id))
+                cursor.execute('UPDATE promotions SET original_price = %s WHERE movie_id = %s', (original_price, movie_id))
+                self.db_connection.commit()
+                QMessageBox.information(self, 'Применить скидку', 'Скидка успешно применена!')
+
+                self.populate_table()
+
+    def cancel_discount(self):
+        current_row = self.table_widget.currentRow()
+        if current_row > -1:
+            movie_id_item = self.table_widget.item(current_row, 1)
+            original_price_item = self.table_widget.item(current_row, 6)
+            if movie_id_item and original_price_item:
+                movie_id = int(movie_id_item.text())
+                original_price = decimal.Decimal(original_price_item.text())
+
+                cursor = self.db_connection.cursor()
+                cursor.execute('UPDATE movies SET ticket_price = %s WHERE movie_id = %s', (original_price, movie_id))
+                self.db_connection.commit()
+                QMessageBox.information(self, 'Отменить скидку', 'Скидка успешно отменена!')
+
+                self.populate_table()
+
+    def delete_promotion(self):
+        current_row = self.table_widget.currentRow()
+        if current_row > -1:
+            promotion_id_item = self.table_widget.item(current_row, 0)
+            if promotion_id_item:
+                promotion_id = int(promotion_id_item.text())
+
+                cursor = self.db_connection.cursor()
+                cursor.execute('DELETE FROM promotions WHERE promotion_id = %s', (promotion_id,))
+                self.db_connection.commit()
+                QMessageBox.information(self, 'Удалить Промоакцию', 'Промоакция успешно удалена!')
+
+                self.populate_table()
+
+
+class AddPromotionWindow(QWidget):
+    def __init__(self, db_connection, parent):
+        super().__init__()
+
+        self.db_connection = db_connection
+        self.parent = parent
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle('Добавить Промоакцию')
+        self.setGeometry(100, 100, 400, 300)
+
+        layout = QVBoxLayout()
+
+        self.movie_label = QLabel('Фильм:')
+        self.movie_combobox = QComboBox()
+        self.load_movies()
+
+        self.discount_label = QLabel('Процент скидки:')
+        self.discount_entry = QLineEdit()
+
+        self.start_date_label = QLabel('Дата начала (ГГГГ-ММ-ДД):')
+        self.start_date_entry = QLineEdit()
+
+        self.end_date_label = QLabel('Дата окончания (ГГГ-ММ-ДД):')
+        self.end_date_entry = QLineEdit()
+
+        add_button = QPushButton('Добавить')
+        add_button.clicked.connect(self.add_promotion)
+
+        layout.addWidget(self.movie_label)
+        layout.addWidget(self.movie_combobox)
+        layout.addWidget(self.discount_label)
+        layout.addWidget(self.discount_entry)
+        layout.addWidget(self.start_date_label)
+        layout.addWidget(self.start_date_entry)
+        layout.addWidget(self.end_date_label)
+        layout.addWidget(self.end_date_entry)
+        layout.addWidget(add_button)
+
+        self.setLayout(layout)
+
+    def load_movies(self):
+        cursor = self.db_connection.cursor()
+        cursor.execute('SELECT movie_id, title FROM movies')
+        movies = cursor.fetchall()
+        for movie in movies:
+            self.movie_combobox.addItem(movie[1], movie[0])
+
+    def add_promotion(self):
+        movie_id = self.movie_combobox.currentData()
+        discount_percentage = self.discount_entry.text()
+        start_date = self.start_date_entry.text()
+        end_date = self.end_date_entry.text()
+
+        cursor = self.db_connection.cursor()
+        cursor.execute('SELECT title FROM movies WHERE movie_id = %s', (movie_id,))
+        movie_title = cursor.fetchone()[0]
+
+        cursor.execute('''
+            INSERT INTO promotions (movie_id, title, discount_percentage, start_date, end_date)
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (movie_id, movie_title, discount_percentage, start_date, end_date))
+
+        self.db_connection.commit()
+        QMessageBox.information(self, 'Добавить Промоакцию', 'Промоакция успешно добавлена!')
+
+        self.parent.populate_table()  # Обновление таблицы после добавления промоакции
+        self.close()
+
 
 
 class AddTicketWindow(QWidget):
@@ -1042,15 +1208,10 @@ class ViewTicketsWindow(QWidget):
         self.table_label = QLabel('Билеты:')
         self.table_widget = QTableWidget(self)
 
-        # Добавляем выпадающий список для выбора зала
-        self.hall_combobox = QComboBox()
-        self.hall_combobox.addItem('Все Залы', None)
-        self.load_halls()
-
         add_ticket_button = QPushButton('Новый Билет')
         add_ticket_button.setIcon(QIcon('icons/add.png'))
         add_ticket_button.clicked.connect(self.show_add_ticket_window)
-
+        
         self.to_pdf_button = QPushButton('В PDF')
         self.to_pdf_button.setIcon(QIcon('icons/pdf.png'))
         self.to_pdf_button.clicked.connect(self.generate_pdf)
@@ -1059,44 +1220,30 @@ class ViewTicketsWindow(QWidget):
         delete_ticket_button.setIcon(QIcon('icons/delete.png'))
         delete_ticket_button.clicked.connect(self.delete_ticket)
 
-        # Добавляем элементы в layout
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(add_ticket_button)
+        button_layout.addWidget(self.to_pdf_button)
+        button_layout.addWidget(delete_ticket_button)
+
         layout.addWidget(self.table_label)
-        layout.addWidget(self.hall_combobox)  # Добавляем выпадающий список зала в layout
         layout.addWidget(self.table_widget)
-        layout.addWidget(add_ticket_button)
-        layout.addWidget(self.to_pdf_button)
-        layout.addWidget(delete_ticket_button)
+        layout.addLayout(button_layout)
 
         self.setLayout(layout)
-
-        self.hall_combobox.currentIndexChanged.connect(self.populate_table)  # Обновляем таблицу при изменении выбора зала
-
         self.populate_table()
-
-    def load_halls(self):
-        cursor = self.db_connection.cursor()
-        cursor.execute('SELECT hall_id, hall_name FROM halls')
-        halls = cursor.fetchall()
-        for hall in halls:
-            self.hall_combobox.addItem(hall[1], hall[0])
 
     def populate_table(self):
         cursor = self.db_connection.cursor()
-        hall_id = self.hall_combobox.currentData()
-
-        query = 'SELECT * FROM tickets'
-        params = []
-
-        if hall_id is not None:
-            query += ' WHERE hall_id = %s'
-            params.append(hall_id)
-        
-        cursor.execute(query, tuple(params))
+        cursor.execute('''
+            SELECT t.ticket_id, t.session_id, t.viewer_id, v.name as viewer_name, t.movie_id, t.title, t.seat_number, t.purchase_time, t.ticket_price, t.hall_id
+            FROM tickets t
+            JOIN viewers v ON t.viewer_id = v.viewer_id
+        ''')
         tickets = cursor.fetchall()
 
         self.table_widget.setRowCount(len(tickets))
-        self.table_widget.setColumnCount(9)
-        self.table_widget.setHorizontalHeaderLabels(['ID Билета', 'ID Сеанса', 'ID Зрителя', 'ID Фильма', 'Название фильма', 'Номер места', 'Время покупки', 'Цена билета', 'ID Зала'])
+        self.table_widget.setColumnCount(10)
+        self.table_widget.setHorizontalHeaderLabels(['ID Билета', 'ID Сеанса', 'ID Зрителя', 'Имя Зрителя', 'ID Фильма', 'Название фильма', 'Номер места', 'Время покупки', 'Цена билета', 'ID Зала'])
 
         for row, ticket in enumerate(tickets):
             for col, data in enumerate(ticket):
@@ -1116,14 +1263,14 @@ class ViewTicketsWindow(QWidget):
                 ticket_data.append(item.text())
 
             ticket_id = ticket_data[0]
-            movie_title = ticket_data[4]
-            hall_id = ticket_data[8]
-            seat_number = ticket_data[5]
-            purchase_time = ticket_data[6]
-            ticket_price = ticket_data[7]
+            movie_title = ticket_data[5]
+            hall_id = ticket_data[9]
+            seat_number = ticket_data[6]
+            purchase_time = ticket_data[7]
+            ticket_price = ticket_data[8]
 
             # Получение URL постера из таблицы movies
-            movie_id = ticket_data[3]
+            movie_id = ticket_data[4]
             cursor = self.db_connection.cursor()
             cursor.execute('SELECT poster_url FROM movies WHERE movie_id = %s', (movie_id,))
             poster_url = cursor.fetchone()[0]
@@ -1191,12 +1338,12 @@ class ViewTicketsWindow(QWidget):
             ticket_id = int(ticket_data[0])  # Преобразование в int
             session_id = int(ticket_data[1])  # Преобразование в int
             viewer_id = int(ticket_data[2])  # Преобразование в int
-            movie_id = int(ticket_data[3])  # Преобразование в int
-            title = ticket_data[4]
-            seat_number = int(ticket_data[5])  # Преобразование в int
-            purchase_time = ticket_data[6]
-            ticket_price = float(ticket_data[7])  # Преобразование в float
-            hall_id = int(ticket_data[8])  # Преобразование в int
+            movie_id = int(ticket_data[4])  # Преобразование в int
+            title = ticket_data[5]
+            seat_number = int(ticket_data[6])  # Преобразование в int
+            purchase_time = ticket_data[7]
+            ticket_price = float(ticket_data[8])  # Преобразование в float
+            hall_id = int(ticket_data[9])  # Преобразование в int
 
             cursor = self.db_connection.cursor()
 
@@ -1239,6 +1386,7 @@ class ViewTicketsWindow(QWidget):
                 QMessageBox.information(self, "Ошибка", "Не поддерживаемая операционная система.")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось открыть PDF файл: {str(e)}")
+
 
 
 

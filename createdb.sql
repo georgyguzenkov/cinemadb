@@ -1,5 +1,8 @@
--- Создание имени базы данных
+-- Создание базы данных
 CREATE DATABASE cinema;
+
+-- Подключение к базе данных
+\c cinema;
 
 -- Создание таблицы пользователей
 CREATE TABLE users (
@@ -70,29 +73,33 @@ CREATE TABLE tickets (
     hall_id INTEGER,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id),
     FOREIGN KEY (viewer_id) REFERENCES viewers(viewer_id),
-    FOREIGN KEY (movie_id) REFERENCES movies(movie_id),
-    FOREIGN KEY (hall_id) REFERENCES halls(hall_id)
+    FOREIGN KEY (movie_id) REFERENCES movies(movie_id)
 );
 
 -- Создание таблицы промоакций
 CREATE TABLE promotions (
-    promo_id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    promotion_id SERIAL PRIMARY KEY,
+    movie_id INTEGER NOT NULL,
+    title VARCHAR(255) NOT NULL,
     discount_percentage NUMERIC(5, 2) NOT NULL,
     start_date DATE NOT NULL,
-    end_date DATE NOT NULL
+    end_date DATE NOT NULL,
+    original_price NUMERIC(10, 2),
+    FOREIGN KEY (movie_id) REFERENCES movies(movie_id)
 );
 
 -- Создание таблицы архива билетов
 CREATE TABLE tickets_archive (
-    archive_id SERIAL PRIMARY KEY,
-    ticket_id INTEGER,
-    session_id INTEGER,
-    viewer_id INTEGER,
-    movie_id INTEGER,
-    title VARCHAR(255),
-    seat_number VARCHAR(255),
+    ticket_id SERIAL PRIMARY KEY,
+    session_id INTEGER NOT NULL,
+    viewer_id INTEGER NOT NULL,
+    movie_id INTEGER NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    seat_number VARCHAR(255) NOT NULL,
     purchase_time TIMESTAMP,
     ticket_price NUMERIC(10, 2),
-    hall_id INTEGER
+    hall_id INTEGER,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id),
+    FOREIGN KEY (viewer_id) REFERENCES viewers(viewer_id),
+    FOREIGN KEY (movie_id) REFERENCES movies(movie_id)
 );
